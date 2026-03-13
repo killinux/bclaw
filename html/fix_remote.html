@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>远程 OpenClaw HTTPS 访问配置总结</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #ff9d00;
+            padding-bottom: 10px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h2 {
+            color: #ff9d00;
+            margin-top: 0;
+        }
+        code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .result {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #4caf50;
+        }
+        .result ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 远程 OpenClaw HTTPS 访问配置总结</h1>
+
+    <div class="section">
+        <h2>问题</h2>
+        <p>远程服务器 49.232.157.149 的 OpenClaw Control UI 通过 HTTPS 访问时显示 "pairing required"</p>
+    </div>
+
+    <div class="section">
+        <h2>解决方法</h2>
+        
+        <h3>1. 修复 Gateway 配置</h3>
+        <p>原来 <code>auth.mode: open</code> 不被允许，改成 <code>token</code> 模式：</p>
+        <pre><code>"auth": {
+    "mode": "token",
+    "token": "test123"
+}</code></pre>
+
+        <h3>2. 修复 Nginx 配置</h3>
+        <p>WebSocket 代理需要特殊配置，添加：</p>
+        <pre><code>proxy_set_header Connection "upgrade";</code></pre>
+
+        <h3>3. 设备配对</h3>
+        <p>批准设备连接：</p>
+        <pre><code>openclaw devices list
+openclaw devices approve &lt;requestId&gt;</code></pre>
+
+        <h3>4. 重启服务</h3>
+        <p>Nginx 和 Gateway 都重启确保配置生效：</p>
+        <pre><code>nginx -s reload
+openclaw gateway restart</code></pre>
+    </div>
+
+    <div class="section result">
+        <h2>✅ 最终效果</h2>
+        <ul>
+            <li><strong>HTTPS 访问地址：</strong> <a href="https://www.hackernel.com/?token=test123">https://www.hackernel.com/?token=test123</a></li>
+            <li><strong>状态显示：</strong> 健康状况正常</li>
+            <li><strong>已配对设备：</strong> 可以正常连接</li>
+            <li><strong>域名：</strong> www.hackernel.com</li>
+            <li><strong>Token：</strong> test123</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>📝 补充说明</h2>
+        <ul>
+            <li>使用 Let's Encrypt 自动申请 SSL 证书</li>
+            <li>证书会自动续期</li>
+            <li>Nginx 反向代理到本地 20000 端口</li>
+        </ul>
+    </div>
+</body>
+</html>
