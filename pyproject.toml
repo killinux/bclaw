@@ -1,0 +1,11 @@
+[project]
+name = "blender-mcp-client"
+version = "0.1.0"
+description = "Blender MCP Client via uv"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.26.0",
+]
+
+[tool.uv]
+dev-dependencies = []

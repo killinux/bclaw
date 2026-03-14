@@ -1,32 +1,40 @@
 # 🦞 OpenClaw 连接 Blender MCP 指南 (Windows)
 
-> **摘要：** 本文档介绍如何在 Windows 上让 OpenClaw 通过自定义 Python 脚本连接 Blender MCP，实现用 AI 控制 Blender。
+> **摘要：** 本文档介绍如何在 Windows 上让 OpenClaw 通过 uv + mcporter 连接 Blender MCP，实现用 AI 控制 Blender。
 
 ---
 
-## 🔄 连接架构图
+## 🔄 三种连接方案
+
+### 方案一：直接 Python Socket（最简单）
+```
+OpenClaw → blender-tool.py (Python socket) → Blender MCP
+```
+
+### 方案二：uv + mcporter（推荐）
+```
+OpenClaw → mcporter → uv run → blender_mcp_server.py → Blender MCP
+```
+
+### 方案三：Claude Code + uv
+```
+Claude Code → uv run → blender_client.py → Blender MCP
+```
+
+---
+
+## 🔄 方案一架构图（直接 Python Socket）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        OpenClaw (AI 助手)                           │
 │                                                                      │
 │   ┌─────────────────────────────────────────────────────────────┐  │
-│   │  mcporter (MCP 客户端) 或 直接调用 Python 脚本               │  │
-│   └─────────────────────────────────────────────────────────────┘  │
-│                              │                                      │
-│                              ▼                                      │
-│   ┌─────────────────────────────────────────────────────────────┐  │
 │   │  blender-tool.py (自定义 Python 脚本)                        │  │
 │   │  └── 通过 socket 发送 JSON 命令到 Blender                    │  │
 │   └─────────────────────────────────────────────────────────────┘  │
 └──────────────────────────┬──────────────────────────────────────────┘
-                           │ stdio / socket
-                           ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                   blender-tool.py (Python 脚本)                      │
-│   └── 通过 TCP socket 连接到 127.0.0.1:8765                         │
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │ TCP:8765
+                           │ socket
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                 Blender (运行中)                                     │
@@ -60,12 +68,6 @@
 https://github.com/pranav-deshmukh/blender-mcp
 ```
 
-或直接从 npm 安装（可选）：
-
-```bash
-npm install -g @iflow-mcp/pranav-deshmukh-blender-mcp
-```
-
 ### 1.2 在 Blender 中安装插件
 
 1. 打开 Blender
@@ -79,27 +81,13 @@ npm install -g @iflow-mcp/pranav-deshmukh-blender-mcp
 1. 在 Blender 界面按 `N` 键打开 Sidebar
 2. 找到 **BlenderMCP** 面板
 3. 确保 **Server** 状态为 Running
-4. **重要：** 将端口改为 `8765`（与官方 npm 包默认端口一致）
-
-> **注意：** 官方 npm 包默认连接 8765，所以需要在 Blender 中将端口改为 8765。
+4. **重要：** 将端口改为 `8765`
 
 ---
 
-## 🐍 步骤二：安装 Python 和依赖
+## 📝 方案一：直接 Python Socket（最简单）
 
-### 2.1 安装 Python（如果未安装）
-
-本方案使用 OpenClaw 自带的 Python：
-
-```
-D:\openclaw\python\python.exe
-```
-
----
-
-## 📝 步骤三：创建连接脚本
-
-### 3.1 核心脚本：blender-tool.py
+### 核心脚本：blender-tool.py
 
 文件位置：`C:\Users\haoni\blender-tool.py`
 
@@ -110,32 +98,28 @@ import sys
 
 def send_to_blender(msg_type, **kwargs):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect(('127.0.0.1', 8765))  # 连接 Blender MCP 端口
+    s.connect(('127.0.0.1', 8765))
 
-    msg = {"type": msg_type, **kwargs}  # 构建 JSON 消息
-    s.send(json.dumps(msg).encode())    # 发送
+    msg = {"type": msg_type, **kwargs}
+    s.send(json.dumps(msg).encode())
     s.settimeout(30)
 
-    result = s.recv(65536).decode()     # 接收结果
+    result = s.recv(65536).decode()
     s.close()
     return result
 
-# 从命令行参数读取命令
-if len(sys.argv) > 1:
-    cmd = sys.argv[1]
-    if cmd == "status":
-        print(send_to_blender("get_polyhaven_status"))
-    elif cmd == "scene":
-        print(send_to_blender("fetch-scene"))
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "status":
+            print(send_to_blender("get_polyhaven_status"))
+        elif cmd == "scene":
+            print(send_to_blender("get_scene_info"))
     else:
-        print(json.dumps({"status": "error", "message": f"Unknown command: {cmd}"}))
-else:
-    print(json.dumps({"status": "error", "message": "No command provided"}))
+        print(json.dumps({"status": "error", "message": "No command provided"}))
 ```
 
-### 3.2 执行代码脚本：create-cube.py
-
-用于向 Blender 发送 Python 代码命令
+### 执行代码脚本
 
 ```python
 import socket
@@ -144,7 +128,6 @@ import json
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect(('127.0.0.1', 8765))
 
-# 发送 execute_code 命令
 msg = {
     "type": "execute_code",
     "params": {
@@ -158,31 +141,260 @@ print(s.recv(8192).decode())
 s.close()
 ```
 
----
-
-## 🧪 步骤四：测试连接
-
-### 4.1 检查 Blender MCP 端口
-
-```powershell
-# 在 PowerShell 中检查端口是否在监听
-Get-NetTCPConnection -LocalPort 8765
-```
-
-### 4.2 测试连接
+### 测试
 
 ```bash
 # 检查状态
 D:\openclaw\python\python.exe C:\Users\haoni\blender-tool.py status
 
-# 执行代码创建立方体
+# 执行代码
 D:\openclaw\python\python.exe C:\Users\haoni\create-cube.py
 ```
 
-> **成功响应示例：**
-> ```json
-> {"status": "success", "result": {"executed": true, "result": ""}}
-> ```
+---
+
+## 🚀 方案二：uv + mcporter（推荐）
+
+### 2.1 安装 uv
+
+```bash
+# 使用 OpenClaw 自带的 uv
+uv --version
+```
+
+### 2.2 安装 mcporter
+
+```bash
+npm install -g mcporter
+```
+
+### 2.3 创建项目结构
+
+```bash
+mkdir E:\mywork\bclaw
+cd E:\mywork\bclaw
+```
+
+### 2.4 创建 pyproject.toml
+
+```toml
+[project]
+name = "blender-mcp-client"
+version = "0.1.0"
+description = "Blender MCP Client via uv"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+dev = []
+```
+
+### 2.5 安装 MCP 依赖
+
+```bash
+cd E:\mywork\bclaw
+uv add mcp
+```
+
+### 2.6 创建 MCP Server：blender_mcp_server.py
+
+```python
+#!/usr/bin/env python3
+"""Blender MCP Server - 使用官方 MCP SDK"""
+
+import socket
+import json
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent
+import asyncio
+
+
+app = Server("blender-mcp")
+
+
+def send_to_blender(msg_type: str, **kwargs) -> dict:
+    """发送命令到 Blender MCP"""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(('127.0.0.1', 8765))
+    
+    msg = {"type": msg_type, **kwargs}
+    s.send(json.dumps(msg).encode())
+    s.settimeout(30)
+    
+    result = s.recv(65536).decode()
+    s.close()
+    return json.loads(result)
+
+
+@app.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="blender_status",
+            description="检查 Blender MCP 状态",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="blender_scene",
+            description="获取 Blender 场景信息",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="blender_objects",
+            description="获取场景中的所有对象",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        Tool(
+            name="blender_exec",
+            description="执行 Blender Python 代码",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "要执行的 Blender Python 代码"}
+                },
+                "required": ["code"]
+            }
+        ),
+    ]
+
+
+@app.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    try:
+        if name == "blender_status":
+            result = send_to_blender("get_polyhaven_status")
+        elif name == "blender_scene":
+            result = send_to_blender("get_scene_info")
+        elif name == "blender_objects":
+            code = "import json; objects = [{'name': obj.name, 'type': obj.type} for obj in bpy.data.objects]; print(json.dumps(objects))"
+            result = send_to_blender("execute_code", params={"code": code})
+        elif name == "blender_exec":
+            code = arguments.get("code", "")
+            result = send_to_blender("execute_code", params={"code": code})
+        else:
+            return [TextContent(type="text", text=f"未知工具: {name}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"错误: {str(e)}")]
+
+
+async def main():
+    async with stdio_server() as (read, write):
+        await app.run(read, write, app.create_initialization_options())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 2.7 配置 mcporter
+
+```bash
+mcporter config add blender --command "uv run --directory E:\\mywork\\bclaw python blender_mcp_server.py"
+```
+
+### 2.8 测试
+
+```bash
+# 列出工具
+mcporter list blender --schema
+
+# 调用工具
+mcporter call blender.blender_status
+mcporter call blender.blender_exec code="import bpy; bpy.ops.mesh.primitive_cube_add(size=1)"
+```
+
+---
+
+## 💻 方案三：Claude Code + uv
+
+### 3.1 安装 Claude Code
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### 3.2 登录 Claude Code
+
+```bash
+claude auth login
+```
+
+### 3.3 创建客户端脚本：blender_client.py
+
+```python
+#!/usr/bin/env python3
+"""Blender MCP 客户端 - 通过 uv 运行"""
+
+import socket
+import json
+import sys
+
+
+def send_to_blender(msg_type: str, **kwargs) -> dict:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.connect(('127.0.0.1', 8765))
+    
+    msg = {"type": msg_type, **kwargs}
+    s.send(json.dumps(msg).encode())
+    s.settimeout(30)
+    
+    result = s.recv(65536).decode()
+    s.close()
+    return json.loads(result)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("用法: python blender_client.py <command> [args...]")
+        sys.exit(1)
+    
+    cmd = sys.argv[1]
+    
+    try:
+        if cmd == "status":
+            result = send_to_blender("get_polyhaven_status")
+        elif cmd == "scene":
+            result = send_to_blender("get_scene_info")
+        elif cmd == "objects":
+            code = "import json; objects = [{'name': obj.name, 'type': obj.type} for obj in bpy.data.objects]; print(json.dumps(objects))"
+            result = send_to_blender("execute_code", params={"code": code})
+        elif cmd == "exec":
+            if len(sys.argv) < 3:
+                print("错误: 请提供要执行的代码")
+                sys.exit(1)
+            code = sys.argv[2]
+            result = send_to_blender("execute_code", params={"code": code})
+        else:
+            print(f"未知命令: {cmd}")
+            sys.exit(1)
+        
+        print(json.dumps(result, indent=2))
+    
+    except Exception as e:
+        print(f"错误: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### 3.4 测试
+
+```bash
+cd E:\mywork\bclaw
+
+# 检查状态
+uv run python blender_client.py status
+
+# 获取对象列表
+uv run python blender_client.py objects
+
+# 执行代码
+uv run python blender_client.py exec "import bpy; bpy.ops.mesh.primitive_cube_add(size=1)"
+```
 
 ---
 
@@ -213,60 +425,34 @@ D:\openclaw\python\python.exe C:\Users\haoni\create-cube.py
 
 ---
 
-## 🐙 步骤五：配置 GitHub（可选）
-
-### 5.1 检查 SSH 密钥
+## ⚡ 快速命令参考
 
 ```bash
-dir C:\Users\haoni\.ssh\
+# 检查 Blender MCP 端口
+Get-NetTCPConnection -LocalPort 8765
+
+# 方案一：直接运行
+D:\openclaw\python\python.exe C:\Users\haoni\blender-tool.py status
+
+# 方案二：uv + mcporter
+mcporter call blender.blender_status
+
+# 方案三：uv 客户端
+cd E:\mywork\bclaw
+uv run python blender_client.py status
 ```
-
-### 5.2 配置 Git
-
-```bash
-# 设置用户名
-git config --global user.name "your-username"
-
-# 设置邮箱
-git config --global user.email "your-email@example.com"
-
-# 添加安全目录（如果需要）
-git config --global --add safe.directory E:/mywork/bclaw
-```
-
-### 5.3 测试 GitHub 连接
-
-```bash
-ssh -T git@github.com
-```
-
-> **成功响应：** `Hi username! You've successfully authenticated...`
 
 ---
 
 ## 📚 相关文件位置
 
-| 文件 | 路径 | 说明 |
-|------|------|------|
-| blender-tool.py | `C:\Users\haoni\blender-tool.py` | 核心连接脚本 |
-| create-cube.py | `C:\Users\haoni\create-cube.py` | 测试脚本 - 创建立方体 |
-| blender-mcp 源码 | `E:\Downloads\blender-mcp-main` | Blender MCP 插件源码 |
-| OpenClaw 配置 | `C:\Users\haoni\.openclaw\openclaw.json` | OpenClaw 主配置 |
-
----
-
-## ⚡ 快速命令参考
-
-```bash
-# 测试 Blender 连接
-D:\openclaw\python\python.exe -c "import socket; s = socket.socket(); s.connect(('127.0.0.1', 8765)); print('Connected')"
-
-# 检查端口状态
-Get-NetTCPConnection -LocalPort 8765
-
-# 执行 Blender 代码
-D:\openclaw\python\python.exe C:\Users\haoni\create-cube.py
-```
+| 文件 | 路径 |
+|------|------|
+| MCP Server | `E:\mywork\bclaw\blender_mcp_server.py` |
+| 客户端脚本 | `E:\mywork\bclaw\blender_client.py` |
+| 项目配置 | `E:\mywork\bclaw\pyproject.toml` |
+| blender-tool.py | `C:\Users\haoni\blender-tool.py` |
+| blender-mcp 源码 | `E:\Downloads\blender-mcp-main` |
 
 ---
 
@@ -278,14 +464,11 @@ D:\openclaw\python\python.exe C:\Users\haoni\create-cube.py
 
 ### Q2: "Unknown command type"
 
-检查命令格式，确保使用正确的 JSON 结构：
-```json
-{"type": "execute_code", "params": {"code": "..."}}
-```
+检查命令格式，确保使用正确的 JSON 结构。
 
-### Q3: 端口被占用
+### Q3: uv 找不到命令
 
-可以使用其他端口，但需要同时修改 BlenderMCP 插件设置和脚本中的端口号。
+确保在正确的目录下运行，或使用绝对路径。
 
 ---
 
